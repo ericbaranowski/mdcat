@@ -1,0 +1,8 @@
+[package]
+name = "tasks"
+version = "0.1.0"
+authors = ["Sebastian Wiesner <sebastian@swsnr.de>"]
+# Never publish our internal tasks!
+publish = false
+
+[dependencies]
