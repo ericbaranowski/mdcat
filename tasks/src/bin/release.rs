@@ -156,6 +156,12 @@ fn make_release() -> Result<(), Error> {
         write_manifest(&cargo_toml, &manifest)?;
         update_lock(&workspace_root, &package_name)?;
         commit_all(&workspace_root, &format!("Set version to {}", pre_version))?;
+
+        println!(
+            "Committed and tagged the release and bumped branch to a prerelease version!
+
+To publish the release, run git push --follow and let Travis do the rest."
+        );
         Ok(())
     } else {
         Err(format_err!(
