@@ -68,6 +68,25 @@ fn commit_all(workspace_root: &Path, message: &str) -> Result<(), Error> {
     }
 }
 
+fn make_tag(workspace_root: &Path, version: &Version, package_name: &str) -> Result<(), Error> {
+    let status = Command::new("git")
+        .current_dir(workspace_root)
+        .arg("tag")
+        .arg("--sign")
+        .arg("--message")
+        .arg(&format!("{} {}", package_name, version))
+        .arg(&format!("{}-{}", package_name, version))
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format_err!(
+            "Command git tag --sign failed with status {}",
+            status,
+        ))
+    }
+}
+
 fn get_version(document: &Document) -> Result<Version, Error> {
     let value = document["package"]["version"]
         .as_str()
@@ -110,11 +129,13 @@ fn make_release() -> Result<(), Error> {
 
     if version.is_prerelease() {
         let mut next_version = version.clone();
+        // TODO: Allow to bump different parts
         next_version.increment_minor();
         set_version(&mut manifest, &next_version);
         write_manifest(&cargo_toml, &manifest)?;
         update_lock(&workspace_root, &package_name)?;
         commit_all(&workspace_root, &format!("Release {}", next_version))?;
+        make_tag(&workspace_root, &next_version, &package_name)?;
         Ok(())
     } else {
         Err(format_err!(
