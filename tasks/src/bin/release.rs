@@ -80,10 +80,32 @@ fn set_version(document: &mut Document, version: &Version) {
     document["package"]["version"] = toml_edit::value(version.to_string());
 }
 
+fn update_lock(workspace_root: &Path, name: &str) -> Result<(), Error> {
+    let status = Command::new("cargo")
+        .current_dir(workspace_root)
+        .arg("update")
+        .arg("--package")
+        .arg(name)
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format_err!(
+            "Command cargo update --package {} failed with status {}",
+            name,
+            status,
+        ))
+    }
+}
+
 fn make_release() -> Result<(), Error> {
     let workspace_root = get_workspace_root()?;
     let cargo_toml = workspace_root.join("Cargo.toml");
     let mut manifest = read_manifest(&cargo_toml)?;
+    let package_name = manifest["package"]["name"]
+        .as_str()
+        .ok_or(err_msg("Package name missing!"))?
+        .to_owned();
     let version = get_version(&manifest)?;
 
     if version.is_prerelease() {
@@ -91,6 +113,7 @@ fn make_release() -> Result<(), Error> {
         next_version.increment_minor();
         set_version(&mut manifest, &next_version);
         write_manifest(&cargo_toml, &manifest)?;
+        update_lock(&workspace_root, &package_name)?;
         commit_all(&workspace_root, &format!("Release {}", next_version))?;
         Ok(())
     } else {
