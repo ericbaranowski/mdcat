@@ -14,6 +14,99 @@
 
 #![deny(warnings)]
 
+#[macro_use]
+extern crate failure;
+extern crate json;
+extern crate semver;
+extern crate toml_edit;
+
+use failure::{err_msg, Error};
+use semver::Version;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use toml_edit::Document;
+
+fn get_workspace_root() -> Result<PathBuf, Error> {
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .output()?
+        .stdout;
+    let stdout = std::str::from_utf8(&output)?;
+    let metadata = json::parse(stdout)?;
+    metadata["workspace_root"]
+        .as_str()
+        .map(Into::into)
+        .ok_or(err_msg("Missing workspace root"))
+}
+
+fn read_manifest(path: &Path) -> Result<Document, Error> {
+    let document = std::fs::read_to_string(path)?.parse::<Document>()?;
+    Ok(document)
+}
+
+fn write_manifest(path: &Path, document: &Document) -> std::io::Result<()> {
+    std::fs::write(path, document.to_string())
+}
+
+fn commit_all(workspace_root: &Path, message: &str) -> Result<(), Error> {
+    let status = Command::new("git")
+        .current_dir(workspace_root)
+        .arg("commit")
+        .arg("--all")
+        .arg("--message")
+        .arg(message)
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format_err!(
+            "Command git commit --all failed with status {}",
+            status,
+        ))
+    }
+}
+
+fn get_version(document: &Document) -> Result<Version, Error> {
+    let value = document["package"]["version"]
+        .as_str()
+        .ok_or(err_msg("Version missing!"))?;
+    let version = Version::parse(value)?;
+    Ok(version)
+}
+
+fn set_version(document: &mut Document, version: &Version) {
+    document["package"]["version"] = toml_edit::value(version.to_string());
+}
+
+fn make_release() -> Result<(), Error> {
+    let workspace_root = get_workspace_root()?;
+    let cargo_toml = workspace_root.join("Cargo.toml");
+    let mut manifest = read_manifest(&cargo_toml)?;
+    let version = get_version(&manifest)?;
+
+    if version.is_prerelease() {
+        let mut next_version = version.clone();
+        next_version.increment_minor();
+        set_version(&mut manifest, &next_version);
+        write_manifest(&cargo_toml, &manifest)?;
+        commit_all(&workspace_root, &format!("Release {}", next_version))?;
+        Ok(())
+    } else {
+        Err(format_err!(
+            "Cannot make release from final version: {}",
+            version
+        ))
+    }
+}
+
 fn main() {
-    println!("Hello world");
+    match make_release() {
+        Ok(_) => (),
+        Err(error) => {
+            eprintln!("Release failed: {}", error);
+            std::process::exit(1);
+        }
+    }
 }
