@@ -21,7 +21,7 @@ extern crate semver;
 extern crate toml_edit;
 
 use failure::{err_msg, Error};
-use semver::Version;
+use semver::{Identifier, Version};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use toml_edit::Document;
@@ -117,6 +117,19 @@ fn update_lock(workspace_root: &Path, name: &str) -> Result<(), Error> {
     }
 }
 
+fn get_release_version(version: &Version) -> Version {
+    let mut next_version = version.clone();
+    next_version.increment_minor();
+    next_version
+}
+
+fn get_preprelease_version(version: &Version) -> Version {
+    let mut prerelrease_version = version.clone();
+    prerelrease_version.increment_patch();
+    prerelrease_version.pre = vec![Identifier::AlphaNumeric("pre".to_string())];
+    prerelrease_version
+}
+
 fn make_release() -> Result<(), Error> {
     let workspace_root = get_workspace_root()?;
     let cargo_toml = workspace_root.join("Cargo.toml");
@@ -128,14 +141,21 @@ fn make_release() -> Result<(), Error> {
     let version = get_version(&manifest)?;
 
     if version.is_prerelease() {
-        let mut next_version = version.clone();
         // TODO: Allow to bump different parts
-        next_version.increment_minor();
+        let next_version = get_release_version(&version);
         set_version(&mut manifest, &next_version);
         write_manifest(&cargo_toml, &manifest)?;
         update_lock(&workspace_root, &package_name)?;
+        // TODO: Update changelog
+
         commit_all(&workspace_root, &format!("Release {}", next_version))?;
         make_tag(&workspace_root, &next_version, &package_name)?;
+
+        let pre_version = get_preprelease_version(&next_version);
+        set_version(&mut manifest, &pre_version);
+        write_manifest(&cargo_toml, &manifest)?;
+        update_lock(&workspace_root, &package_name)?;
+        commit_all(&workspace_root, &format!("Set version to {}", pre_version))?;
         Ok(())
     } else {
         Err(format_err!(
